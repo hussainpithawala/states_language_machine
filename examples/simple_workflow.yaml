@@ -1,0 +1,7 @@
+Comment: "A simple hello world workflow"
+StartAt: "Hello"
+States:
+  Hello:
+    Type: "Pass"
+    Result: "Hello, World!"
+    End: true

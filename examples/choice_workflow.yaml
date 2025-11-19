@@ -1,0 +1,28 @@
+Comment: "A workflow with choices"
+StartAt: "CheckValue"
+States:
+  CheckValue:
+    Type: "Choice"
+    Choices:
+      - Variable: "$.value"
+        NumericGreaterThan: 100
+        Next: "LargeValue"
+      - Variable: "$.value"
+        NumericLessThan: 0
+        Next: "NegativeValue"
+    Default: "NormalValue"
+
+  LargeValue:
+    Type: "Pass"
+    Result: "Value is large"
+    End: true
+
+  NegativeValue:
+    Type: "Pass"
+    Result: "Value is negative"
+    End: true
+
+  NormalValue:
+    Type: "Pass"
+    Result: "Value is normal"
+    End: true
