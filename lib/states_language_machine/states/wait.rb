@@ -1,76 +1,122 @@
-# frozen_string_literal: true
+require 'time'
 
 module StatesLanguageMachine
   module States
-    class Wait < Base
-      # @return [Integer, nil] the number of seconds to wait
-      attr_reader :seconds
-      # @return [String, nil] the timestamp to wait until
-      attr_reader :timestamp
-      # @return [String, nil] the path to seconds value in input
-      attr_reader :seconds_path
-      # @return [String, nil] the path to timestamp value in input
-      attr_reader :timestamp_path
+    class Wait
+      attr_reader :state_type, :seconds, :timestamp, :seconds_path, :timestamp_path, :next_state, :end_state
 
-      # @param name [String] the name of the state
-      # @param definition [Hash] the state definition
-      def initialize(name, definition)
-        super
-        @seconds = definition["Seconds"]
-        @timestamp = definition["Timestamp"]
-        @timestamp_path = definition["TimestampPath"]
-        @seconds_path = definition["SecondsPath"]
+      def initialize(definition, state_name)
+        @state_name = state_name
+
+        # Ensure definition is a Hash and extract values safely
+        @state_type = definition.is_a?(Hash) ? definition["Type"] : nil
+        @seconds = definition.is_a?(Hash) ? definition["Seconds"] : nil
+        @timestamp = definition.is_a?(Hash) ? definition["Timestamp"] : nil
+        @seconds_path = definition.is_a?(Hash) ? definition["SecondsPath"] : nil
+        @timestamp_path = definition.is_a?(Hash) ? definition["TimestampPath"] : nil
+        @next_state = definition.is_a?(Hash) ? definition["Next"] : nil
+
+        # Safely handle End key - check if it exists and is truthy
+        if definition.is_a?(Hash)
+          @end_state = definition.key?("End") ? !!definition["End"] : false
+        else
+          @end_state = false
+        end
+
+        validate
       end
 
-      # @param execution [Execution] the current execution
-      # @param input [Hash] the input data for the state
-      # @return [Hash] the output data from the state
-      def execute(execution, input)
-        execution.logger&.info("Executing wait state: #{@name}")
+      def execute(context)
+        # Determine how long to wait
+        wait_seconds = calculate_wait_seconds(context)
 
-        sleep_time = calculate_wait_time(input)
-        execution.logger&.info("Waiting for #{sleep_time} seconds")
+        # Perform the wait
+        sleep(wait_seconds) if wait_seconds > 0
 
-        # Simulate waiting (in real implementation, you might want non-blocking)
-        sleep(sleep_time) if sleep_time > 0
-
-        process_result(execution, input)
-        input
+        # Return execution result
+        ExecutionResult.new(
+          next_state: @end_state ? nil : @next_state,
+          output: context.execution_input,
+          end_execution: @end_state
+        )
       end
 
       private
 
-      # Calculate how long to wait based on the wait configuration
-      # @param input [Hash] the input data
-      # @return [Numeric] the number of seconds to wait
-      # @raise [ExecutionError] if the wait configuration is invalid
-      def calculate_wait_time(input)
+      def calculate_wait_seconds(context)
         if @seconds
           @seconds.to_i
-        elsif @seconds_path
-          get_value_from_path(input, @seconds_path).to_i
         elsif @timestamp
-          target_time = Time.parse(@timestamp)
-          [target_time - Time.now, 0].max
+          target_time = Time.parse(@timestamp)  # Use :: to specify the class method
+          wait_time = target_time - Time.now
+          wait_time > 0 ? wait_time : 0
+        elsif @seconds_path
+          seconds_value = extract_path_value(context.execution_input, @seconds_path)
+          validate_seconds_value(seconds_value)
+          seconds_value.to_i
         elsif @timestamp_path
-          timestamp_value = get_value_from_path(input, @timestamp_path)
-          target_time = Time.parse(timestamp_value.to_s)
-          [target_time - Time.now, 0].max
+          timestamp_value = extract_path_value(context.execution_input, @timestamp_path)
+          target_time = Time.parse(timestamp_value)  # Use :: to specify the class method
+          wait_time = target_time - Time.now
+          wait_time > 0 ? wait_time : 0
         else
           0
         end
-      rescue => e
-        raise ExecutionError.new(@name, "Invalid wait configuration: #{e.message}")
       end
 
-      # Validate the wait state definition
-      # @raise [DefinitionError] if the definition is invalid
-      def validate!
-        super
-        wait_methods = [@seconds, @timestamp, @seconds_path, @timestamp_path].compact
-        if wait_methods.size != 1
-          raise DefinitionError, "Wait state '#{@name}' must have exactly one of: Seconds, Timestamp, SecondsPath, or TimestampPath"
+      def extract_path_value(input, path)
+        # Simple path extraction - you might want to use a JSONPath library
+        if path.start_with?("$.")
+          key = path[2..-1]
+          input[key]
+        else
+          input[path]
         end
+      end
+
+      def validate_seconds_value(seconds)
+        return if seconds.is_a?(Integer) && seconds >= 0
+        return if seconds.is_a?(String) && seconds.match?(/^\d+$/) && seconds.to_i >= 0
+
+        raise StatesLanguageMachine::Error, "Seconds value must be a positive integer"
+      end
+
+      def validate
+        raise StatesLanguageMachine::Error, "State definition must be a Hash" unless @state_type
+
+        wait_methods = [@seconds, @timestamp, @seconds_path, @timestamp_path].compact
+        raise StatesLanguageMachine::Error, "Wait state must specify one of: Seconds, Timestamp, SecondsPath, or TimestampPath" if wait_methods.empty?
+
+        raise StatesLanguageMachine::Error, "Wait state can only specify one wait method" if wait_methods.size > 1
+
+        validate_seconds_value(@seconds) if @seconds
+
+        if @timestamp
+          begin
+            ::Time.parse(@timestamp)  # Use :: to specify the class method
+          rescue ArgumentError
+            raise StatesLanguageMachine::Error, "Invalid timestamp format: #{@timestamp}"
+          end
+        end
+
+        if @end_state && @next_state
+          raise StatesLanguageMachine::Error, "Wait state cannot have both 'End' and 'Next'"
+        end
+
+        unless @end_state || @next_state
+          raise StatesLanguageMachine::Error, "Wait state must have either 'End' or 'Next'"
+        end
+      end
+    end
+
+    # Simple result class for execution
+    class ExecutionResult
+      attr_reader :next_state, :output, :end_execution
+
+      def initialize(next_state: nil, output: nil, end_execution: false)
+        @next_state = next_state
+        @output = output
+        @end_execution = end_execution
       end
     end
   end

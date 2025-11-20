@@ -25,6 +25,17 @@ RSpec.configure do |config|
   config.expect_with :rspec do |c|
     c.syntax = :expect
   end
+
+  # Add time helpers for wait state testing
+  config.around(:each) do |example|
+    # Allow time-based tests to run without actual long waits
+    if example.metadata[:skip_time_wait]
+      allow_any_instance_of(WaitState).to receive(:sleep)
+      example.run
+    else
+      example.run
+    end
+  end
 end
 
 # Load all support files
