@@ -81,7 +81,7 @@ RSpec.configure do |config|
 
   config.around(:each) do |example|
     if example.metadata[:skip_time_wait] && defined?(StatesLanguageMachine::States::Wait)
-      allow_any_instance_of(StatesLanguageMachine::States::Wait).to receive(:sleep)
+      # allow_any_instance_of(StatesLanguageMachine::States::Wait).to receive(:sleep)
     end
     example.run
   end
